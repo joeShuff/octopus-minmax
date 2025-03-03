@@ -1,3 +1,4 @@
+import os
 import time
 import traceback
 from datetime import date, datetime
@@ -18,6 +19,7 @@ gql_client: Client
 
 tariffs = []
 
+CONFIG_PATH = os.path.join(os.getcwd(), "config")
 
 def send_notification(message, title="Octobot"):
     """Sends a notification using Apprise.
@@ -207,30 +209,42 @@ def switch_tariff(target_tariff):
             print(e)  # Should print out if it's not working
         context = browser.new_context(viewport={"width": 1920, "height": 1080})
         page = context.new_page()
-        page.set_default_timeout(300_000) #5 minutes 
-        page.goto("https://octopus.energy/")
-        page.wait_for_timeout(5000)
-        print("Octopus Energy website loaded")
-        page.get_by_label("Log in to my account").click()
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Email address").click()
-        page.wait_for_timeout(5000)
-        # replace w env
-        page.get_by_placeholder("Email address").fill(config.OCTOPUS_LOGIN_EMAIL)
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Email address").press("Tab")
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Password").fill(config.OCTOPUS_LOGIN_PASSWD)
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Password").press("Enter")
-        page.wait_for_timeout(5000)
-        print("Login details entered")
-        # replace with env
-        page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
-        page.wait_for_timeout(10000)
-        print("Tariff switch page loaded")
-        page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button").click()
-        page.wait_for_timeout(10000)
+
+        try:
+            print(page.evaluate("navigator.userAgent"))
+            page.goto("https://octopus.energy/")
+            page.wait_for_timeout(5000)
+            print("Octopus Energy website loaded")
+            page.get_by_label("Log in to my account").click()
+            page.wait_for_timeout(5000)
+            page.screenshot(path=f"{CONFIG_PATH}/1_login.png")
+            page.get_by_placeholder("Email address").click()
+            page.wait_for_timeout(5000)
+            # replace w env
+            page.get_by_placeholder("Email address").fill(config.OCTOPUS_LOGIN_EMAIL)
+            page.wait_for_timeout(5000)
+            page.get_by_placeholder("Email address").press("Tab")
+            page.wait_for_timeout(5000)
+            page.get_by_placeholder("Password").fill(config.OCTOPUS_LOGIN_PASSWD)
+            page.wait_for_timeout(5000)
+            page.screenshot(path=f"{CONFIG_PATH}/2_creds.png")
+            page.get_by_placeholder("Password").press("Enter")
+            page.wait_for_timeout(10000)
+            page.screenshot(path=f"{CONFIG_PATH}/3_logged_in.png")
+            print("Login details entered")
+            # replace with env
+            page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
+            page.wait_for_timeout(10000)
+            page.screenshot(path=f"{CONFIG_PATH}/4_switch_loaded.png")
+            print("Tariff switch page loaded")
+            page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button")
+            page.wait_for_timeout(10000)
+            page.screenshot(path=f"{CONFIG_PATH}/5_clicked.png")
+        except Exception as e:
+            send_notification("Something went wrong with playwright. Screenshot taken.")
+            page.screenshot(path=f"{CONFIG_PATH}/failed.png")
+            print(e)
+
         # check if url has success
         context.close()
         browser.close()
@@ -377,3 +391,5 @@ def run_tariff_compare():
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
         send_notification(traceback.format_exc())
+
+switch_tariff("cosy-octopus")
