@@ -1,6 +1,8 @@
+import os
 import time
 import traceback
 from datetime import date, datetime
+from typing import Optional
 
 import requests
 from apprise import Apprise
@@ -18,13 +20,16 @@ gql_client: Client
 
 tariffs = []
 
+CONFIG_PATH = os.path.join(os.getcwd(), "config")
 
-def send_notification(message, title="Octobot"):
+
+def send_notification(message, title="", file_path: Optional[str] = None):
     """Sends a notification using Apprise.
 
     Args:
         message (str): The message to send.
-        title (str, optional): The title of the notification. Defaults to "Octobot".
+        title (str, optional): The title of the notification. Defaults to "".
+        :param filePath: Path for the file to attach to the message
     """
     print(message)
 
@@ -45,7 +50,8 @@ def send_notification(message, title="Octobot"):
     if is_only_discord:
         message = f"`{message}`"
 
-    apprise.notify(body=message, title=title)
+    apprise.notify(body=message, title=title, attach=file_path)
+
 
 # The version of the terms and conditions is required to accept the new tariff
 def get_terms_version(product_code):
@@ -53,7 +59,8 @@ def get_terms_version(product_code):
     result = gql_client.execute(query)
     terms_version = result.get('termsAndConditionsForProduct', {}).get('version', "1.0").split('.')
 
-    return({'major': int(terms_version[0]), 'minor': int(terms_version[1])})
+    return ({'major': int(terms_version[0]), 'minor': int(terms_version[1])})
+
 
 def accept_new_agreement(product_code):
     query = gql(enrolment_query.format(acc_number=config.ACC_NUMBER))
@@ -74,9 +81,9 @@ def accept_new_agreement(product_code):
                         return
 
         raise Exception("ERROR: No completed post-enrolment found today and no in-progress enrolment.")
-    
+
     version = get_terms_version(product_code)
-    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, 
+    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER,
                                           enrolment_id=enrolment_id,
                                           version_major=version['major'],
                                           version_minor=version['minor']))
@@ -222,30 +229,48 @@ def switch_tariff(target_tariff):
             print(e)  # Should print out if it's not working
         context = browser.new_context(viewport={"width": 1920, "height": 1080})
         page = context.new_page()
-        page.set_default_timeout(300_000) #5 minutes 
-        page.goto("https://octopus.energy/")
-        page.wait_for_timeout(5000)
-        print("Octopus Energy website loaded")
-        page.get_by_label("Log in to my account").click()
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Email address").click()
-        page.wait_for_timeout(5000)
-        # replace w env
-        page.get_by_placeholder("Email address").fill(config.OCTOPUS_LOGIN_EMAIL)
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Email address").press("Tab")
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Password").fill(config.OCTOPUS_LOGIN_PASSWD)
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Password").press("Enter")
-        page.wait_for_timeout(5000)
-        print("Login details entered")
-        # replace with env
-        page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
-        page.wait_for_timeout(10000)
-        print("Tariff switch page loaded")
-        page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button").click()
-        page.wait_for_timeout(10000)
+
+        try:
+            print(page.evaluate("navigator.userAgent"))
+            page.goto("https://octopus.energy/")
+            page.wait_for_timeout(5000)
+            print("Octopus Energy website loaded")
+            page.get_by_label("Log in to my account").click()
+            page.wait_for_timeout(5000)
+            page.screenshot(path=f"{CONFIG_PATH}/1_login.png")
+            send_notification("Login page loaded", file_path=f"{CONFIG_PATH}/1_login.png")
+            page.get_by_placeholder("Email address").click()
+            page.wait_for_timeout(5000)
+            # replace w env
+            page.get_by_placeholder("Email address").fill(config.OCTOPUS_LOGIN_EMAIL)
+            page.wait_for_timeout(5000)
+            page.get_by_placeholder("Email address").press("Tab")
+            page.wait_for_timeout(5000)
+            page.get_by_placeholder("Password").fill(config.OCTOPUS_LOGIN_PASSWD)
+            page.wait_for_timeout(5000)
+            page.screenshot(path=f"{CONFIG_PATH}/2_creds.png")
+            send_notification("Credentials added", file_path=f"{CONFIG_PATH}/2_creds.png")
+            page.get_by_placeholder("Password").press("Enter")
+            page.wait_for_timeout(10000)
+            page.screenshot(path=f"{CONFIG_PATH}/3_logged_in.png")
+            send_notification("Logged in", file_path=f"{CONFIG_PATH}/3_logged_in.png")
+            print("Login details entered")
+            # replace with env
+            page.goto(
+                f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
+            page.wait_for_timeout(10000)
+            page.screenshot(path=f"{CONFIG_PATH}/4_switch_loaded.png")
+            send_notification("Loaded switch page", file_path=f"{CONFIG_PATH}/4_switch_loaded.png")
+            print("Tariff switch page loaded")
+            page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button").click()
+            page.wait_for_timeout(10000)
+            page.screenshot(path=f"{CONFIG_PATH}/5_clicked.png")
+            send_notification("Requested switch", file_path=f"{CONFIG_PATH}/5_clicked.png")
+        except Exception as e:
+            send_notification("Something went wrong with playwright. Screenshot taken.")
+            page.screenshot(path=f"{CONFIG_PATH}/failed.png")
+            print(e)
+
         # check if url has success
         context.close()
         browser.close()
